@@ -94,7 +94,14 @@ def main() -> int:
     ap.add_argument("--universe", default=str(ROOT / "data/universe/spy_ndx_tickers.txt"))
     ap.add_argument("--manifest", default=str(ROOT / "manifests/embedded.jsonl"))
     ap.add_argument("--status", default="")
-    ap.add_argument("--store-uri", default=str(ROOT / "artifacts/lancedb"))
+    ap.add_argument(
+        "--store-uri",
+        default=os.environ.get("LANCEDB_URI", "/tmp/sec-fin-embeddings-lancedb"),
+    )
+    ap.add_argument(
+        "--vectors-jsonl",
+        default=str(ROOT / "artifacts/vectors.jsonl"),
+    )
     ap.add_argument("--max-filings", type=int, default=0, help="0 = until daily quota")
     ap.add_argument("--model", default="gemini-embedding-001")
     ap.add_argument("--dim", type=int, default=768)
@@ -116,7 +123,7 @@ def main() -> int:
     done = load_done_accessions(args.manifest)
     df = load_priority(Path(args.filings_parquet), universe, {"10-K", "10-Q"})
     todo = df[~df["accession"].astype(str).isin(done)]
-    store = open_store("lancedb", uri=args.store_uri)
+    store = open_store("jsonl+lancedb", uri=args.store_uri, jsonl=args.vectors_jsonl)
 
     payload = {
         "updated": datetime.now(timezone.utc).isoformat(),
@@ -130,7 +137,7 @@ def main() -> int:
         "api_calls": 0,
         "errors": 0,
         "stop_reason": "running",
-        "store": f"lancedb:{args.store_uri}",
+        "store": f"jsonl:{args.vectors_jsonl} + lancedb:{args.store_uri}",
         "manifest": args.manifest,
         "last_accession": None,
         "priority_remaining": int(len(todo)),
@@ -139,16 +146,24 @@ def main() -> int:
     write_status(status_path, payload)
 
     n_ok = n_chunks = n_calls = n_err = 0
+    consecutive_err = 0
     stop = "completed_queue"
     for _, row in todo.iterrows():
+        attempted = n_ok + n_err
         if args.max_filings and n_ok >= args.max_filings:
             stop = "max_filings"
+            break
+        # When max_filings set for smoke tests, also bound total attempts
+        if args.max_filings and attempted >= max(args.max_filings * 5, args.max_filings):
+            stop = "max_attempts"
+            break
+        if consecutive_err >= 25:
+            stop = "consecutive_errors"
             break
         snap = snapshot()
         if snap["remaining_rpd"] <= 0:
             stop = "daily_quota"
             break
-        # Need at least 1 call headroom; leave 1 for safety if nearly empty
         ref = FilingRef(
             cik=str(row["cik"]),
             accession=str(row["accession"]),
@@ -168,6 +183,7 @@ def main() -> int:
                 dim=args.dim,
             )
             n_ok += 1
+            consecutive_err = 0
             n_chunks += int(meta.get("n_chunks") or 0)
             n_calls += int(meta.get("api_calls") or 0)
             payload["last_accession"] = ref.accession
@@ -176,10 +192,12 @@ def main() -> int:
                 stop = "daily_quota"
                 break
             n_err += 1
+            consecutive_err += 1
             print(f"ERR {ref.accession}: {e}", flush=True)
         except Exception as e:
             n_err += 1
-            print(f"ERR {ref.accession}: {e}\n{traceback.format_exc()}", flush=True)
+            consecutive_err += 1
+            print(f"ERR {ref.accession}: {e}", flush=True)
         if (n_ok + n_err) % 5 == 0:
             payload.update(
                 {

@@ -10,7 +10,8 @@ from typing import Optional
 
 import requests
 
-_DEFAULT_UA = "sec-fin-embeddings/0.1 (open collaborative research; contact via GitHub issues)"
+# SEC requires a descriptive UA with a contact email (403 without it).
+_DEFAULT_UA = "sec-fin-embeddings/0.1 (filings@robhybrid.dev)"
 _lock = threading.Lock()
 _last_req = 0.0
 
@@ -81,8 +82,11 @@ def resolve_primary_url(ref: FilingRef, *, user_agent: str = _DEFAULT_UA, max_rp
 
 def html_to_text(html: str) -> str:
     try:
-        from bs4 import BeautifulSoup
+        import warnings
 
+        from bs4 import BeautifulSoup, XMLParsedAsHTMLWarning
+
+        warnings.filterwarnings("ignore", category=XMLParsedAsHTMLWarning)
         soup = BeautifulSoup(html, "lxml")
         for tag in soup(["script", "style", "noscript"]):
             tag.decompose()

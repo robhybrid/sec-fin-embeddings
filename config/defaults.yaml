@@ -1,5 +1,5 @@
 edgar:
-  user_agent: "sec-fin-embeddings/0.1 (open collaborative research; contact via GitHub issues)"
+  user_agent: "sec-fin-embeddings/0.1 (filings@robhybrid.dev)"
   max_rps: 8.0          # stay under SEC ≤10 req/s
   timeout_s: 60
 
@@ -19,10 +19,11 @@ universe:
   priority_years: 2     # most recent N years first
 
 store:
-  # Default: local LanceDB (sync to paid object storage / remote later).
+  # Default: JSONL (portable, works on FUSE) + LanceDB on local/object URI.
   # Community can vote to change via GOVERNANCE.md.
-  backend: lancedb
-  lancedb_uri: artifacts/lancedb
+  backend: jsonl+lancedb
+  vectors_jsonl: artifacts/vectors.jsonl
+  lancedb_uri: /tmp/sec-fin-embeddings-lancedb
   table: filings_chunks
   # Optional paid backends (set env + switch backend after governance vote
   # or maintainer config):

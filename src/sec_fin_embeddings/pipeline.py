@@ -28,7 +28,7 @@ def process_filing(
     dim: int = 768,
     max_chars: int = 6000,
     batch_size: int = 4,
-    user_agent: str = "sec-fin-embeddings/0.1 (open collaborative research; contact via GitHub issues)",
+    user_agent: str = "sec-fin-embeddings/0.1 (filings@robhybrid.dev)",
     max_rps: float = 8.0,
 ) -> dict[str, Any]:
     url = resolve_primary_url(ref, user_agent=user_agent, max_rps=max_rps)

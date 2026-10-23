@@ -37,13 +37,13 @@ class LanceStore(VectorStore):
     def upsert(self, rows: list[dict[str, Any]]) -> int:
         if not rows:
             return 0
-        import pyarrow as pa
-
-        # Flatten vector + metadata
-        vectors = [r["vector"] for r in rows]
-        meta = [{k: v for k, v in r.items() if k != "vector"} for r in rows]
-        data = {k: [m.get(k) for m in meta] for k in meta[0]}
-        data["vector"] = vectors
+        # LanceDB expects a list of row dicts (vector + metadata).
+        data = []
+        for r in rows:
+            row = {k: v for k, v in r.items()}
+            # Ensure vector is a plain list[float]
+            row["vector"] = list(row["vector"])
+            data.append(row)
         if self._tbl is None:
             self._tbl = self._db.create_table(self.table, data=data, mode="overwrite")
         else:
@@ -54,6 +54,11 @@ class LanceStore(VectorStore):
         if self._tbl is None:
             return 0
         return int(self._tbl.count_rows())
+
+    def _refresh(self) -> None:
+        names = set(self._db.list_tables()) if hasattr(self._db, "list_tables") else set(self._db.table_names())
+        if self.table in names:
+            self._tbl = self._db.open_table(self.table)
 
 
 class JsonlFallbackStore(VectorStore):
@@ -76,24 +81,52 @@ class JsonlFallbackStore(VectorStore):
             return sum(1 for _ in f)
 
 
+class DualStore(VectorStore):
+    """Write JSONL (portable) + best-effort LanceDB (local disk / object storage)."""
+
+    def __init__(self, primary: VectorStore, secondary: VectorStore | None = None):
+        self.primary = primary
+        self.secondary = secondary
+
+    def upsert(self, rows: list[dict[str, Any]]) -> int:
+        n = self.primary.upsert(rows)
+        if self.secondary is not None:
+            try:
+                self.secondary.upsert(rows)
+            except Exception as e:
+                # Don't lose embeddings if LanceDB FS lacks rename (FUSE/NFS quirks).
+                print(f"WARN secondary store upsert failed: {e}", flush=True)
+        return n
+
+    def count(self) -> int:
+        return self.primary.count()
+
+
 def open_store(backend: str | None = None, **kwargs) -> VectorStore:
-    backend = (backend or os.environ.get("VECTOR_STORE_BACKEND") or "lancedb").lower()
-    if backend == "lancedb":
+    backend = (backend or os.environ.get("VECTOR_STORE_BACKEND") or "jsonl+lancedb").lower()
+    jsonl_path = kwargs.get("jsonl") or os.environ.get("VECTOR_JSONL", "artifacts/vectors.jsonl")
+    lance_uri = kwargs.get("uri") or os.environ.get(
+        "LANCEDB_URI",
+        # Prefer local disk — some project stores block atomic rename Lance needs.
+        os.path.join(os.environ.get("TMPDIR", "/tmp"), "sec-fin-embeddings-lancedb"),
+    )
+    table = kwargs.get("table") or os.environ.get("LANCEDB_TABLE", "filings_chunks")
+
+    if backend in ("jsonl", "jsonl+lancedb", "dual"):
+        primary = JsonlFallbackStore(jsonl_path)
+        if backend == "jsonl":
+            return primary
         try:
-            return LanceStore(
-                kwargs.get("uri") or os.environ.get("LANCEDB_URI", "artifacts/lancedb"),
-                kwargs.get("table") or os.environ.get("LANCEDB_TABLE", "filings_chunks"),
-            )
-        except Exception:
-            return JsonlFallbackStore(
-                kwargs.get("jsonl") or "artifacts/vectors.jsonl",
-            )
-    if backend == "jsonl":
-        return JsonlFallbackStore(kwargs.get("jsonl") or "artifacts/vectors.jsonl")
+            secondary: VectorStore | None = LanceStore(lance_uri, table)
+        except Exception as e:
+            print(f"WARN LanceDB unavailable ({e}); JSONL only", flush=True)
+            secondary = None
+        return DualStore(primary, secondary)
+    if backend == "lancedb":
+        return LanceStore(lance_uri, table)
     if backend in ("pinecone", "supabase"):
-        # Placeholders: require secrets; fail loudly so governance switch is intentional.
         raise NotImplementedError(
             f"{backend} backend selected — set credentials and implement adapter, "
-            "or keep lancedb until maintainers vote (see GOVERNANCE.md)."
+            "or keep jsonl+lancedb until maintainers vote (see GOVERNANCE.md)."
         )
     raise ValueError(f"unknown vector store backend: {backend}")

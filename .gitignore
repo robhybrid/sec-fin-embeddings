@@ -10,6 +10,7 @@ venv/
 .mypy_cache/
 artifacts/
 !artifacts/.gitkeep
+!artifacts/README.md
 data/cache/
 data/html/
 *.lance/
@@ -18,8 +19,10 @@ vectors/
 *.npy
 *.parquet
 !data/universe/*.txt
+# Growing manifests are OK to commit in PRs; ignore local vectors only
 .DS_Store
 tmp/
 /tmp/
 gemini-embed-quota.json
 *.lock
+.venv/

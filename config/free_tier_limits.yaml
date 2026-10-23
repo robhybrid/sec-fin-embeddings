@@ -1,0 +1,28 @@
+# Documented free-tier for gemini-embedding-001 (Google AI forum, Dec 2025).
+# Verify in AI Studio → Rate limits for your project; actual capacity can vary.
+# Limits are per project, per model — separate from generateContent (flash-lite) quotas.
+model: gemini-embedding-001
+free_tier:
+  rpm: 100          # requests per minute
+  rpd: 1000         # requests per day (resets midnight America/Los_Angeles)
+  tpm: 30000        # input tokens per minute
+input_token_limit: 2048
+recommended_dims: [768, 1536, 3072]
+default_output_dimensionality: 768
+
+# Job uses this fraction of free tier (never raise PM batch caps).
+quota_fraction: 0.8
+
+# Derived caps at 0.8 (floored):
+#   rpm: 80
+#   rpd: 800
+#   tpm: 24000
+
+# Cross-process lock (do NOT share with PM generateContent lock).
+quota_file: /tmp/gemini-embed-quota.json
+
+# Shared-pool note: Google rates limits per model. embedContent on
+# gemini-embedding-001 is a different bucket from generateContent on
+# gemini-*-flash-lite. If cross-model 429 coupling appears, split remaining
+# headroom fairly and document math in manifests/quota-notes.md — never raise
+# the PM batch fraction above its configured value.

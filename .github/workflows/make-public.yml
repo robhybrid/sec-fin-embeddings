@@ -1,0 +1,25 @@
+# Flip this private repo to public on/after 2026-10-24 (Pacific).
+# No-ops until that date. Requires default GITHUB_TOKEN with repo admin
+# or a PAT in secrets.REPO_ADMIN_TOKEN with `repo` scope.
+name: make-public-when-due
+
+on:
+  schedule:
+    # Hourly on 2026-10-24 Pacific ≈ 07:00–23:00 UTC that calendar day + next
+    - cron: "15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  maybe-public:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # visibility change needs administration; use PAT if token lacks it
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check date and flip
+        env:
+          GH_TOKEN: ${{ secrets.REPO_ADMIN_TOKEN || secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          python3 scripts/make_public_when_due.py

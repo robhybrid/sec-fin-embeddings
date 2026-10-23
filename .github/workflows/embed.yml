@@ -1,0 +1,50 @@
+name: embed-shard
+
+on:
+  workflow_dispatch:
+    inputs:
+      max_filings:
+        description: "Max filings this run (0 = until daily 80% quota)"
+        default: "50"
+        required: false
+  schedule:
+    # Gentle daily burn of free embedding RPD at 80% (Pacific midnight reset ≈ 08:00 UTC)
+    - cron: "30 8 * * *"
+
+jobs:
+  embed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: pip install -r requirements.txt
+      - name: Run embed job
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_EMBED_QUOTA_FRACTION: "0.8"
+          GEMINI_EMBED_QUOTA_FILE: ${{ runner.temp }}/gemini-embed-quota.json
+          # Optional: upload artifacts; filings parquet via cache or secret URL
+          FILINGS_PARQUET: ${{ secrets.FILINGS_PARQUET_PATH }}
+        run: |
+          if [ -z "$GEMINI_API_KEY" ]; then
+            echo "GEMINI_API_KEY secret missing — skip"
+            exit 0
+          fi
+          if [ ! -f "${FILINGS_PARQUET:-/dev/null}" ]; then
+            echo "No filings parquet in this runner; contributors run locally (see CONTRIBUTING)."
+            exit 0
+          fi
+          python scripts/run_job.py --max-filings "${{ inputs.max_filings || 50 }}"
+      - name: Upload manifest + status
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: embed-manifest
+          path: |
+            manifests/
+            artifacts/
+          if-no-files-found: ignore

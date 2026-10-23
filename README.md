@@ -41,11 +41,13 @@ EDGAR HTML  →  MD&A/risk chunks  →  gemini-embedding-001 (768-d)  →  Lance
 
 | Backend | Role | Cost note |
 |---|---|---|
-| **LanceDB** (default) | Local / S3-compatible URI | Free locally; object storage ≈ **$0.01–0.02/GB-mo** |
+| **JSONL + LanceDB** (default) | JSONL always; LanceDB on local/object URI | Free locally; object storage ≈ **$0.01–0.02/GB-mo** |
 | Pinecone serverless | Optional paid default | Free starter then usage-based; switch via governance |
 | Supabase pgvector | Optional paid default | Free 500 MB → Pro ~**$25/mo** |
 
 Founding maintainer pays for the hosted default until a maintainer vote changes it.
+Some FUSE volumes block Lance atomic rename — JSONL is the portable primary; point
+`LANCEDB_URI` at paid object storage when ready.
 
 ## Quick start
 
